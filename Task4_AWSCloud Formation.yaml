@@ -42,38 +42,100 @@ Resources:
     Properties:
       Tags:
         - Key: Name
-          Value: MyInternetGateway
+          Value: InternetGatewayForDevVPC
   #---- AttachGateway To VPC.
   AttachGateway:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
       VpcId: !Ref VPC
       InternetGatewayId: !Ref InternetGateway
-  
+      DependsOn: 
+        - InternetGateway
+    # NAT Gateways and Elastic IPs
+  NatEip1:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NatEip2:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NatGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEip1.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: NatGateway1
+
+  NatGateway2:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEip2.AllocationId
+      SubnetId: !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: NatGateway2
  #RouteTables
   #---- Public RouteTable Creation (Info:Any component will assassin here will send/receive requests to/from anywhere).
-  PublicRouteTable:
+  DefaultPublicRoute:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref VPC
+      DependsOn: 
+        - VPC
       Tags:
         - Key: Name
-          Value: PublicRouteTable
-  #-------- Rout value to PublicRouteTable(Accept all 0.0.0.0/0 on Gateway).
+          Value: DefaultPublicRoute
+  #-------- Attach Rout value to DefaultPublicRoute(Accept all 0.0.0.0/0 on Gateway).
   PublicRoute:
     Type: AWS::EC2::Route
     Properties:
-      RouteTableId: !Ref PublicRouteTable
+      RouteTableId: !Ref DefaultPublicRoute
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
-  #---- private RouteTable Creation.
-  PrivateRouteTable:
+      DependsOn: 
+        - InternetGateway
+        - DefaultPublicRoute
+  #---- private RouteTable and routs Creation.
+  PrivateRouteTableSubNet1AZ1:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref VPC
       Tags:
         - Key: Name
-          Value: PrivateRouteTable
+          Value: PrivateRouteTableSubNet1AZ1
+
+    PrivateRouteTableSubNet2AZ2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: PrivateRouteTableSubNet2AZ2
+
+  PrivateRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableSubNet1AZ1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway1
+      DependsOn: 
+        - PrivateRouteTableSubNet1AZ1
+        - NatGateway1
+
+  PrivateRoute2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableSubNet2AZ2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway2
+      DependsOn: 
+        - PrivateRouteTableSubNet2AZ2
+        - NatGateway2
  #Subnets
    #---- PublicSubnet1 AZ1 Creation.
   PublicSubnet1:
@@ -123,25 +185,37 @@ Resources:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       SubnetId: !Ref PublicSubnet1
-      RouteTableId: !Ref PublicRouteTable
+      RouteTableId: !Ref DefaultPublicRoute
+      DependsOn: 
+        - PublicSubnet1
+        - DefaultPublicRoute
 
   PublicSubnet2RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       SubnetId: !Ref PublicSubnet2
-      RouteTableId: !Ref PublicRouteTable
+      RouteTableId: !Ref DefaultPublicRoute
+      DependsOn: 
+        - PublicSubnet2
+        - DefaultPublicRoute
 
   PrivateSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       SubnetId: !Ref PrivateSubnet1
-      RouteTableId: !Ref PrivateRouteTable
+      RouteTableId: !Ref PrivateRouteTableSubNet1AZ1
+      DependsOn: 
+        - PrivateSubnet1
+        - PrivateRouteTableSubNet1AZ1
 
   PrivateSubnet2RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       SubnetId: !Ref PrivateSubnet2
-      RouteTableId: !Ref PrivateRouteTable
+      RouteTableId: !Ref PrivateRouteTableSubNet2AZ2
+      DependsOn: 
+        - PrivateSubnet2
+        - PrivateRouteTableSubNet2AZ2
 
 Outputs:
   VpcId:
