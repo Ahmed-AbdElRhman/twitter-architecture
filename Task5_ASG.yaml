@@ -1,0 +1,130 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  CloudFormation template to create an Auto Scaling Group (ASG) with Launch Template, Scaling Policies, and integration with existing VPC and subnets.
+
+Parameters:
+#------------ Pre created Parametrs Network and Subnets ------------
+  VpcId:
+    Type: List<AWS::EC2::VPC::Id>
+    Description: VPC ID to deploy the ASG
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: List of Private Subnet IDs
+  InstanceType:
+    Type: String
+    Default: t2.micro
+    Description: EC2 instance type
+#------------ ASG Paramters ------------
+  AMIId:
+    Type: String
+    Description: AMI (Image) ID for the EC2 instances
+  MaxInstances:
+    Type: Number
+    Default: 4
+    Description: Maximum number of instances in the ASG
+  MinInstances:
+    Type: Number
+    Default: 2
+    Description: Minimum number of instances in the ASG
+  DesiredInstances:
+    Type: Number
+    Default: 2
+    Description: Desired number of instances in the ASG
+  KeyName:
+    Description: Key pair name for SSH access
+    Type: AWS::EC2::KeyPair::KeyName
+#------------ ScalingPolicy Paramter (PreDefined Scaling Metric Type) ------------
+  PredefinedMetricType:
+    Type: String
+    Default: ALBRequestCountPerTarget
+    Description: Choose the predefined metric for scaling (e.g., ALBRequestCountPerTarget, CPUUtilization)
+    AllowedValues:
+      - ALBRequestCountPerTarget
+      - CPUUtilization
+      - NetworkIn
+      - NetworkOut
+    # Parameter for Scaling Up Target Value
+  TargetValueUp:
+    Type: Number
+    Default: 50
+    Description: Target value for the chosen Scaling -UP- metric ! Make sure to enter the correct value accourding to the selected matric
+
+  # Parameter for Scaling Down Target Value
+  TargetValueDown:
+    Type: Number
+    Default: 30
+    Description: Target value for the chosen Scaling -DOWN- metric ! Make sure to enter the correct value accourding to the selected matric
+
+Resources:
+ #------------ LaunchTemplate ------------
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: LaunchTemplate_Dev
+      LaunchTemplateData:
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyName
+        ImageId: !Ref AMIId
+        NetworkInterfaces:
+          - AssociatePublicIpAddress: false
+            SubnetId: !Select [0, !Ref PrivateSubnetIds]
+            DeviceIndex: 0  
+        Monitoring:
+          Enabled: true
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: ASGInstance_DEV
+# ------------ AutoScalingGroup ------------
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: AutoScalingGroupForDevVPC
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      VPCZoneIdentifier: !Ref PrivateSubnetIds
+      MinSize: !Ref MinInstances
+      MaxSize: !Ref MaxInstances
+      DesiredCapacity: !Ref DesiredInstances
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 300
+      DependsOn:
+        - LaunchTemplate
+      Tags:
+        - Key: Name
+          Value: ASGInstance
+          PropagateAtLaunch: true
+  #------------ Scaling Policy ------------
+  ScalingPolicyUp:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      DependsOn:
+        - AutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: !Ref PredefinedMetricType
+        TargetValue: !Ref TargetValueUp
+
+  ScalingPolicyDown:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      DependsOn:
+        - AutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: !Ref PredefinedMetricType
+        TargetValue: !Ref TargetValueDown
+
+Outputs:
+  AutoScalingGroupName:
+    Description: The name of the Auto Scaling Group
+    Value: !Ref AutoScalingGroup
+  LaunchTemplateId:
+    Description: The ID of the Launch Template created for the ASG
+    Value: !Ref LaunchTemplate
