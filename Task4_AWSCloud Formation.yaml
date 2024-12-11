@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  CloudFormation template For Networking and Subnets to create a VPC with public and private subnets in multiple availability zones.
+  CloudFormation template for Networking and Subnets to create a VPC with public and private subnets in multiple availability zones.
 
 Parameters:
   VpcCidr:
@@ -10,22 +10,22 @@ Parameters:
   PublicSubnetCidr1:
     Type: String
     Default: 172.16.1.0/24
-    Description: CIDR block for Public Subnet 1 AZ1
+    Description: CIDR block for Public Subnet 1
   PublicSubnetCidr2:
     Type: String
     Default: 172.16.2.0/24
-    Description: CIDR block for Public Subnet 2 AZ1
+    Description: CIDR block for Public Subnet 2
   PrivateSubnetCidr1:
     Type: String
     Default: 172.16.3.0/24
-    Description: CIDR block for Private Subnet 1 AZ2
+    Description: CIDR block for Private Subnet 1
   PrivateSubnetCidr2:
     Type: String
     Default: 172.16.4.0/24
-    Description: CIDR block for Private Subnet 2 AZ2
+    Description: CIDR block for Private Subnet 2
 
 Resources:
- #VPC && InternetGateway.
+  #VPC && InternetGateway.
   #---- VPC Creation.
   VPC:
     Type: AWS::EC2::VPC
@@ -49,9 +49,9 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       InternetGatewayId: !Ref InternetGateway
-      DependsOn: 
-        - InternetGateway
-    # NAT Gateways and Elastic IPs
+      # DependsOn: #---> extraneous key [DependsOn] is not permitted]
+      #   - InternetGateway
+  # Elastic IPs for NAT Gateways
   NatEip1:
     Type: AWS::EC2::EIP
     Properties:
@@ -61,7 +61,7 @@ Resources:
     Type: AWS::EC2::EIP
     Properties:
       Domain: vpc
-
+  # NAT Gateways
   NatGateway1:
     Type: AWS::EC2::NatGateway
     Properties:
@@ -70,7 +70,6 @@ Resources:
       Tags:
         - Key: Name
           Value: NatGateway1
-
   NatGateway2:
     Type: AWS::EC2::NatGateway
     Properties:
@@ -79,143 +78,121 @@ Resources:
       Tags:
         - Key: Name
           Value: NatGateway2
- #RouteTables
-  #---- Public RouteTable Creation (Info:Any component will assassin here will send/receive requests to/from anywhere).
-  DefaultPublicRoute:
+  #-------------------- PublicSubnets and its Configuation --------------------
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetCidr1
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: PublicSubnet1_AZ1
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetCidr2
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: PublicSubnet2_AZ2
+  #Public RouteTable Creation (Info:Any component will assassin here will send/receive requests to/from anywhere).
+  PublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref VPC
-      DependsOn: 
-        - VPC
       Tags:
         - Key: Name
           Value: DefaultPublicRoute
-  #-------- Attach Rout value to DefaultPublicRoute(Accept all 0.0.0.0/0 on Gateway).
   PublicRoute:
     Type: AWS::EC2::Route
     Properties:
-      RouteTableId: !Ref DefaultPublicRoute
+      RouteTableId: !Ref PublicRouteTable
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
-      DependsOn: 
-        - InternetGateway
-        - DefaultPublicRoute
-  #---- private RouteTable and routs Creation.
-  PrivateRouteTableSubNet1AZ1:
+      # DependsOn: #---> extraneous key [DependsOn] is not permitted]
+      #   - InternetGateway
+      #   - PublicRouteTable
+  # Subnet Route Table Associations
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  #-------------------- Private Subnets and Its Configurations --------------------
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnetCidr1
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: PrivateSubnet1_AZ1
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnetCidr2
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: PrivateSubnet2_AZ
+  # Private Route Tables
+  PrivateRouteTable1:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref VPC
       Tags:
         - Key: Name
           Value: PrivateRouteTableSubNet1AZ1
-
-    PrivateRouteTableSubNet2AZ2:
+  PrivateRouteTable2:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref VPC
       Tags:
         - Key: Name
           Value: PrivateRouteTableSubNet2AZ2
-
+  
   PrivateRoute1:
     Type: AWS::EC2::Route
     Properties:
-      RouteTableId: !Ref PrivateRouteTableSubNet1AZ1
+      RouteTableId: !Ref PrivateRouteTable1
       DestinationCidrBlock: 0.0.0.0/0
       NatGatewayId: !Ref NatGateway1
-      DependsOn: 
-        - PrivateRouteTableSubNet1AZ1
-        - NatGateway1
-
+      # DependsOn: #---> extraneous key [DependsOn] is not permitted]
+      #   - PrivateRouteTable1
+      #   - NatGateway1
   PrivateRoute2:
     Type: AWS::EC2::Route
     Properties:
-      RouteTableId: !Ref PrivateRouteTableSubNet2AZ2
+      RouteTableId: !Ref PrivateRouteTable2
       DestinationCidrBlock: 0.0.0.0/0
       NatGatewayId: !Ref NatGateway2
-      DependsOn: 
-        - PrivateRouteTableSubNet2AZ2
-        - NatGateway2
- #Subnets
-   #---- PublicSubnet1 AZ1 Creation.
-  PublicSubnet1:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref VPC
-      CidrBlock: !Ref PublicSubnetCidr1
-      AvailabilityZone: !Select [ 0, !GetAZs '' ]
-      MapPublicIpOnLaunch: true
-      Tags:
-        - Key: Name
-          Value: PublicSubnet1_AZ1
-   #---- PublicSubnet2 AZ2 Creation.
-  PublicSubnet2:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref VPC
-      CidrBlock: !Ref PublicSubnetCidr2
-      AvailabilityZone: !Select [ 1, !GetAZs '' ]
-      MapPublicIpOnLaunch: true
-      Tags:
-        - Key: Name
-          Value: PublicSubnet2_AZ2
-   #---- PrivateSubnet1 AZ1 Creation.
-  PrivateSubnet1:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref VPC
-      CidrBlock: !Ref PrivateSubnetCidr1
-      AvailabilityZone: !Select [ 0, !GetAZs '' ]
-      Tags:
-        - Key: Name
-          Value: PrivateSubnet1_AZ1
-   #---- PrivateSubnet2 AZ2 Creation.
-  PrivateSubnet2:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref VPC
-      CidrBlock: !Ref PrivateSubnetCidr2
-      AvailabilityZone: !Select [ 1, !GetAZs '' ]
-      Tags:
-        - Key: Name
-          Value: PrivateSubnet2_AZ2
-
-#RouteTable and Subnets Association
-  PublicSubnet1RouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref PublicSubnet1
-      RouteTableId: !Ref DefaultPublicRoute
-      DependsOn: 
-        - PublicSubnet1
-        - DefaultPublicRoute
-
-  PublicSubnet2RouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref PublicSubnet2
-      RouteTableId: !Ref DefaultPublicRoute
-      DependsOn: 
-        - PublicSubnet2
-        - DefaultPublicRoute
-
+      # DependsOn: #---> extraneous key [DependsOn] is not permitted]
+      #   - PrivateRouteTable2
+      #   - NatGateway2
+  # Subnet Route Table Associations
   PrivateSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       SubnetId: !Ref PrivateSubnet1
-      RouteTableId: !Ref PrivateRouteTableSubNet1AZ1
-      DependsOn: 
-        - PrivateSubnet1
-        - PrivateRouteTableSubNet1AZ1
-
+      RouteTableId: !Ref PrivateRouteTable1
   PrivateSubnet2RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       SubnetId: !Ref PrivateSubnet2
-      RouteTableId: !Ref PrivateRouteTableSubNet2AZ2
-      DependsOn: 
-        - PrivateSubnet2
-        - PrivateRouteTableSubNet2AZ2
+      RouteTableId: !Ref PrivateRouteTable2
 
 Outputs:
   VpcId:
