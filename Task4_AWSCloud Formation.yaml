@@ -44,7 +44,7 @@ Resources:
         - Key: Name
           Value: InternetGatewayForDevVPC
   #---- AttachGateway To VPC.
-  AttachGateway:
+  InternetGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
       VpcId: !Ref VPC
