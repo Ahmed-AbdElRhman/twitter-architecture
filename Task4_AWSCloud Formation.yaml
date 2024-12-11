@@ -49,8 +49,9 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       InternetGatewayId: !Ref InternetGateway
-      # DependsOn: #---> extraneous key [DependsOn] is not permitted]
-      #   - InternetGateway
+    DependsOn:
+      - InternetGateway
+      - VPC
   # Elastic IPs for NAT Gateways
   NatEip1:
     Type: AWS::EC2::EIP
@@ -113,9 +114,8 @@ Resources:
       RouteTableId: !Ref PublicRouteTable
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
-      # DependsOn: #---> extraneous key [DependsOn] is not permitted]
-      #   - InternetGateway
-      #   - PublicRouteTable
+    DependsOn:
+      - PublicRouteTable
   # Subnet Route Table Associations
   PublicSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -170,18 +170,18 @@ Resources:
       RouteTableId: !Ref PrivateRouteTable1
       DestinationCidrBlock: 0.0.0.0/0
       NatGatewayId: !Ref NatGateway1
-      # DependsOn: #---> extraneous key [DependsOn] is not permitted]
-      #   - PrivateRouteTable1
-      #   - NatGateway1
+    DependsOn:
+      - PrivateRouteTable1
+      - NatGateway1
   PrivateRoute2:
     Type: AWS::EC2::Route
     Properties:
       RouteTableId: !Ref PrivateRouteTable2
       DestinationCidrBlock: 0.0.0.0/0
       NatGatewayId: !Ref NatGateway2
-      # DependsOn: #---> extraneous key [DependsOn] is not permitted]
-      #   - PrivateRouteTable2
-      #   - NatGateway2
+    DependsOn:
+      - PrivateRouteTable2
+      - NatGateway2
   # Subnet Route Table Associations
   PrivateSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
