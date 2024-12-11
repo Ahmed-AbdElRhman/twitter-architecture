@@ -79,6 +79,8 @@ Resources:
 # ------------ AutoScalingGroup ------------
   AutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
+    DependsOn:
+      - LaunchTemplate
     Properties:
       AutoScalingGroupName: AutoScalingGroupForDevVPC
       LaunchTemplate:
@@ -90,8 +92,6 @@ Resources:
       DesiredCapacity: !Ref DesiredInstances
       HealthCheckType: EC2
       HealthCheckGracePeriod: 300
-      DependsOn:
-        - LaunchTemplate
       Tags:
         - Key: Name
           Value: ASGInstance
@@ -99,10 +99,10 @@ Resources:
   #------------ Scaling Policy ------------
   ScalingPolicyUp:
     Type: AWS::AutoScaling::ScalingPolicy
+    DependsOn:
+      - AutoScalingGroup
     Properties:
       AutoScalingGroupName: !Ref AutoScalingGroup
-      DependsOn:
-        - AutoScalingGroup
       PolicyType: TargetTrackingScaling
       TargetTrackingConfiguration:
         PredefinedMetricSpecification:
@@ -111,10 +111,10 @@ Resources:
 
   ScalingPolicyDown:
     Type: AWS::AutoScaling::ScalingPolicy
+    DependsOn:
+      - AutoScalingGroup
     Properties:
       AutoScalingGroupName: !Ref AutoScalingGroup
-      DependsOn:
-        - AutoScalingGroup
       PolicyType: TargetTrackingScaling
       TargetTrackingConfiguration:
         PredefinedMetricSpecification:
