@@ -57,11 +57,16 @@ Resources:
     Type: AWS::EC2::EIP
     Properties:
       Domain: vpc
-
+      Tags:
+        - Key: Name
+          Value: NatEip1
   NatEip2:
     Type: AWS::EC2::EIP
     Properties:
       Domain: vpc
+      Tags:
+        - Key: Name
+          Value: NatEip2
   # NAT Gateways
   NatGateway1:
     Type: AWS::EC2::NatGateway
@@ -71,6 +76,8 @@ Resources:
       Tags:
         - Key: Name
           Value: NatGateway1
+    DependsOn:
+      - PublicSubnet1
   NatGateway2:
     Type: AWS::EC2::NatGateway
     Properties:
@@ -79,6 +86,8 @@ Resources:
       Tags:
         - Key: Name
           Value: NatGateway2
+    DependsOn:
+      - PublicSubnet2
   #-------------------- PublicSubnets and its Configuation --------------------
   PublicSubnet1:
     Type: AWS::EC2::Subnet
@@ -90,6 +99,8 @@ Resources:
       Tags:
         - Key: Name
           Value: PublicSubnet1_AZ1
+    DependsOn:
+      - VPC
   PublicSubnet2:
     Type: AWS::EC2::Subnet
     Properties:
@@ -100,6 +111,8 @@ Resources:
       Tags:
         - Key: Name
           Value: PublicSubnet2_AZ2
+    DependsOn:
+      - VPC
   #Public RouteTable Creation (Info:Any component will assassin here will send/receive requests to/from anywhere).
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
@@ -108,6 +121,8 @@ Resources:
       Tags:
         - Key: Name
           Value: DefaultPublicRoute
+    DependsOn:
+      - VPC
   PublicRoute:
     Type: AWS::EC2::Route
     Properties:
@@ -116,19 +131,24 @@ Resources:
       GatewayId: !Ref InternetGateway
     DependsOn:
       - PublicRouteTable
+      - InternetGateway
   # Subnet Route Table Associations
   PublicSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       SubnetId: !Ref PublicSubnet1
       RouteTableId: !Ref PublicRouteTable
-
+    DependsOn:
+      - PublicSubnet1
+      - PublicRouteTable
   PublicSubnet2RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       SubnetId: !Ref PublicSubnet2
       RouteTableId: !Ref PublicRouteTable
-
+    DependsOn:
+      - PublicSubnet2
+      - PublicRouteTable
   #-------------------- Private Subnets and Its Configurations --------------------
   PrivateSubnet1:
     Type: AWS::EC2::Subnet
@@ -139,6 +159,8 @@ Resources:
       Tags:
         - Key: Name
           Value: PrivateSubnet1_AZ1
+    DependsOn:
+      - VPC
   PrivateSubnet2:
     Type: AWS::EC2::Subnet
     Properties:
@@ -148,6 +170,8 @@ Resources:
       Tags:
         - Key: Name
           Value: PrivateSubnet2_AZ
+    DependsOn:
+      - VPC
   # Private Route Tables
   PrivateRouteTable1:
     Type: AWS::EC2::RouteTable
@@ -156,6 +180,8 @@ Resources:
       Tags:
         - Key: Name
           Value: PrivateRouteTableSubNet1AZ1
+    DependsOn:
+      - VPC
   PrivateRouteTable2:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -163,7 +189,8 @@ Resources:
       Tags:
         - Key: Name
           Value: PrivateRouteTableSubNet2AZ2
-  
+    DependsOn:
+      - VPC
   PrivateRoute1:
     Type: AWS::EC2::Route
     Properties:
@@ -188,12 +215,17 @@ Resources:
     Properties:
       SubnetId: !Ref PrivateSubnet1
       RouteTableId: !Ref PrivateRouteTable1
+    DependsOn:
+      - PrivateSubnet1
+      - PrivateRouteTable1
   PrivateSubnet2RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       SubnetId: !Ref PrivateSubnet2
       RouteTableId: !Ref PrivateRouteTable2
-
+    DependsOn:
+      - PrivateSubnet2
+      - PrivateRouteTable2
 Outputs:
   VpcId:
     Description: The ID of the VPC
