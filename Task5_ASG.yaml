@@ -15,9 +15,9 @@ Parameters:
     Default: t2.micro
     Description: EC2 instance type
 #------------ ASG Paramters ------------
-  AMIId:
-    Type: String
-    Description: AMI (Image) ID for the EC2 instances
+  # AMIId:
+  #   Type: String
+  #   Description: AMI (Image) ID for the EC2 instances
   MaxInstances:
     Type: Number
     Default: 4
@@ -36,13 +36,13 @@ Parameters:
 #------------ ScalingPolicy Paramter (PreDefined Scaling Metric Type) ------------
   PredefinedMetricType:
     Type: String
-    Default: ALBRequestCountPerTarget
-    Description: Choose the predefined metric for scaling (e.g., ALBRequestCountPerTarget, CPUUtilization)
+    Default: ASGAverageCPUUtilization  # Updated default value to a valid one
+    Description: Choose the predefined metric for scaling (e.g., ASGAverageCPUUtilization, ALBRequestCountPerTarget)
     AllowedValues:
+      - ASGAverageCPUUtilization
       - ALBRequestCountPerTarget
-      - CPUUtilization
-      - NetworkIn
-      - NetworkOut
+      - ASGAverageNetworkIn
+      - ASGAverageNetworkOut
     # Parameter for Scaling Up Target Value
   TargetValueUp:
     Type: Number
@@ -64,7 +64,7 @@ Resources:
       LaunchTemplateData:
         InstanceType: !Ref InstanceType
         KeyName: !Ref KeyName
-        ImageId: !Ref AMIId
+        ImageId: ami-02df5cb5ad97983ba #Amazon Linux 
         NetworkInterfaces:
           - AssociatePublicIpAddress: false
             SubnetId: !Select [0, !Ref PrivateSubnetIds]
@@ -75,7 +75,7 @@ Resources:
           - ResourceType: instance
             Tags:
               - Key: Name
-                Value: ASGInstance_DEV
+                Value: ASGPrivateInstance_DEV
 # ------------ AutoScalingGroup ------------
   AutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
@@ -96,7 +96,7 @@ Resources:
         - Key: Name
           Value: ASGInstance
           PropagateAtLaunch: true
-  #------------ Scaling Policy ------------
+  # #------------ Scaling Policy ------------
   ScalingPolicyUp:
     Type: AWS::AutoScaling::ScalingPolicy
     DependsOn:
