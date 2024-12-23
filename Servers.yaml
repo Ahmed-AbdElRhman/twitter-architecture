@@ -10,6 +10,9 @@ Parameters:
   PrivateSubnetIds:
     Type: List<AWS::EC2::Subnet::Id>
     Description: List of Private Subnet IDs
+  PublicSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: List of PublicSubne Subnet IDs
   InstanceType:
     Type: String
     Default: t2.micro
@@ -71,11 +74,57 @@ Resources:
             DeviceIndex: 0  
         Monitoring:
           Enabled: true
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda  # Root volume
+            Ebs:
+              VolumeType: gp3
+              VolumeSize: 20
+              Encrypted: true
+              DeleteOnTermination: true
         TagSpecifications:
           - ResourceType: instance
             Tags:
               - Key: Name
                 Value: ASGPrivateInstance_DEV
+        UserData:
+          Fn::Base64: 
+            !Sub |
+              #!/bin/bash
+              # Update system
+              yum update -y
+
+              # Install dependencies
+              yum install -y httpd awscli
+
+              # Configure additional EBS volume
+              DEVICE="/dev/xvdf"
+              MOUNT_POINT="/mnt/data"
+
+              # Check if the device exists
+              if [ -b $DEVICE ]; then
+                # Create filesystem if not already created
+                if ! blkid $DEVICE; then
+                  mkfs -t ext4 $DEVICE
+                fi
+
+                # Create mount point
+                mkdir -p $MOUNT_POINT
+
+                # Add to fstab
+                echo "$DEVICE $MOUNT_POINT ext4 defaults,nofail 0 2" >> /etc/fstab
+
+                # Mount the volume
+                mount -a
+              fi
+
+              # Start and enable web server
+              systemctl start httpd
+              systemctl enable httpd
+
+              # Create sample index page
+              echo "<h1>Hello from Tweet App ServerDEV</h1>" > /var/www/html/index.html
+              echo "<p>Additional data volume mounted at $MOUNT_POINT</p>" >> /var/www/html/index.html
+
 # ------------ AutoScalingGroup ------------
   AutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
@@ -120,7 +169,47 @@ Resources:
         PredefinedMetricSpecification:
           PredefinedMetricType: !Ref PredefinedMetricType
         TargetValue: !Ref TargetValueDown
+  # #------------  Application Load Balancer (ALB) ------------
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: TweetALB_DEV
+      Scheme: internet-facing
+      Subnets: !Ref PrivateSubnetIds
+      Tags:
+        - Key: Name
+          Value: TweetALB_Dev
 
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: TweetALBTargetGroup
+      VpcId: !Ref VPCId
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      HealthCheckEnabled: true
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckPort: traffic-port
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 3
+      UnhealthyThresholdCount: 3
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: !Ref ALBListenerPort
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+    DependsOn:
+      - ApplicationLoadBalancer
+      - ALBTargetGroup
+      
 Outputs:
   AutoScalingGroupName:
     Description: The name of the Auto Scaling Group
