@@ -5,17 +5,20 @@ Description: >
 Parameters:
 #------------ Pre created Parametrs Network and Subnets ------------
   VpcId:
-    Type: List<AWS::EC2::VPC::Id>
+    Type: AWS::EC2::VPC::Id
+    Default: vpc-066cd775db66747c2
     Description: VPC ID to deploy the ASG
   PrivateSubnetIds:
     Type: List<AWS::EC2::Subnet::Id>
+    Default: subnet-0391d852ad9b5eb75,subnet-08644d84dd075fbdc
     Description: List of Private Subnet IDs
   PublicSubnetIds:
     Type: List<AWS::EC2::Subnet::Id>
+    Default: subnet-086aaccd60fa3bc74,subnet-0f8ce19ad4facb2d0
     Description: List of PublicSubne Subnet IDs
   InstanceType:
     Type: String
-    Default: t2.micro
+    Default: t3.micro
     Description: EC2 instance type
 #------------ ASG Paramters ------------
   # AMIId:
@@ -34,8 +37,15 @@ Parameters:
     Default: 2
     Description: Desired number of instances in the ASG
   KeyName:
-    Description: Key pair name for SSH access
     Type: AWS::EC2::KeyPair::KeyName
+    Default: PrivateEC2KeyPair
+    Description: Key pair name for SSH access
+
+#------------ ALB Paramters ------------
+  ALBListenerPort:
+    Type: Number
+    Default: 80
+    Description: ALB Listener Port Number
 #------------ ScalingPolicy Paramter (PreDefined Scaling Metric Type) ------------
   PredefinedMetricType:
     Type: String
@@ -120,7 +130,8 @@ Resources:
               # Start and enable web server
               systemctl start httpd
               systemctl enable httpd
-
+              # Get the EC2 instance ID from metadata
+              INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
               # Create sample index page
               echo "<h1>Hello from Tweet App ServerDEV</h1>" > /var/www/html/index.html
               echo "<p>Additional data volume mounted at $MOUNT_POINT</p>" >> /var/www/html/index.html
@@ -173,18 +184,18 @@ Resources:
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Name: TweetALB_DEV
+      Name: TweetALBDEV
       Scheme: internet-facing
       Subnets: !Ref PrivateSubnetIds
       Tags:
         - Key: Name
-          Value: TweetALB_Dev
+          Value: TweetALBDev
 
   ALBTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       Name: TweetALBTargetGroup
-      VpcId: !Ref VPCId
+      VpcId: !Ref VpcId
       Port: 80
       Protocol: HTTP
       TargetType: instance
