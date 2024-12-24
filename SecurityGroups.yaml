@@ -1,0 +1,49 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Security groups for EC2 instances and ALB 
+
+Resources:
+  # ------------ ALB Security Group ------------
+  LBSecGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ALB Security Group
+      VpcId: !ImportValue VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: LBSecGroup
+  # ------------ EC2 Instance Security Group ------------
+  WebServerSecGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group for EC2 instances
+      VpcId: !ImportValue VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref LBSecGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: WebServerSecGroup
+    DependsOn:
+      - LBSecGroup
+Outputs:
+  LBSecGroup:
+    Description: Security Group ID for ALB
+    Value: !Ref LBSecGroup
+    Export:
+      Name: LBSecGroupId
+
+  WebServerSecGroupId:
+    Description: Security Group ID for EC2 instances
+    Value: !Ref WebServerSecGroup
+    Export:
+      Name: WebServerSecGroupId
