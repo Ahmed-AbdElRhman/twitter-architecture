@@ -1,59 +1,91 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  Auto Scaling Group (ASG) with Launch Template, Scaling Policies,and ALB.
+  Auto Scaling Group (ASG) with Launch Template, Scaling Policies, and ALB.
 
 Parameters:
   InstanceType:
     Type: String
     Default: t3.micro
     Description: EC2 instance type
-#------------ ASG Paramters ------------
+
   MaxInstances:
     Type: Number
     Default: 4
     Description: Maximum number of instances in the ASG
+
   MinInstances:
     Type: Number
     Default: 2
     Description: Minimum number of instances in the ASG
+
   DesiredInstances:
     Type: Number
     Default: 2
     Description: Desired number of instances in the ASG
+
   KeyName:
     Type: AWS::EC2::KeyPair::KeyName
-    Default: PrivateEC2KeyPair
+    Default: PublicEC2KeyPair
     Description: Key pair name for SSH access
 
-#------------ ALB Paramters ------------
   ALBListenerPort:
     Type: Number
     Default: 80
     Description: ALB Listener Port Number
-#------------ ScalingPolicy Paramter (PreDefined Scaling Metric Type) ------------
+
   PredefinedMetricType:
     Type: String
-    Default: ASGAverageCPUUtilization  # Updated default value to a valid one
+    Default: ASGAverageCPUUtilization
     Description: Choose the predefined metric for scaling (e.g., ASGAverageCPUUtilization, ALBRequestCountPerTarget)
     AllowedValues:
       - ASGAverageCPUUtilization
       - ALBRequestCountPerTarget
       - ASGAverageNetworkIn
       - ASGAverageNetworkOut
-    # Parameter for Scaling Up Target Value
+
   TargetValueUp:
     Type: Number
-    Default: 50
-    Description: Target value for the chosen Scaling -UP- metric ! Make sure to enter the correct value accourding to the selected matric
+    Default: 95
+    Description: Target value for the chosen Scaling -UP- metric
 
-  # Parameter for Scaling Down Target Value
   TargetValueDown:
     Type: Number
-    Default: 30
-    Description: Target value for the chosen Scaling -DOWN- metric ! Make sure to enter the correct value accourding to the selected matric
+    Default: 20
+    Description: Target value for the chosen Scaling -DOWN- metric
 
 Resources:
- #------------ LaunchTemplate ------------
+
+  EC2IndexBucketRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3IndexBucketPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: "s3:*"
+                Resource: !Join ["",["arn:aws:s3:::",!ImportValue S3BucketIndexFileId]]
+              - Effect: Allow
+                Action: "s3:*"
+                Resource: !Join ["",["arn:aws:s3:::",!ImportValue S3BucketIndexFileId,"/*"]]
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2IndexBucketRole
+
   LaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
@@ -61,16 +93,18 @@ Resources:
       LaunchTemplateData:
         InstanceType: !Ref InstanceType
         KeyName: !Ref KeyName
-        ImageId: ami-02df5cb5ad97983ba #Amazon Linux 
+        ImageId: ami-02df5cb5ad97983ba # Amazon Linux 
         SecurityGroupIds:
           - !ImportValue WebServerSecGroupId
+        IamInstanceProfile:
+          Name: !Ref InstanceProfile
         Monitoring:
           Enabled: true
         BlockDeviceMappings:
           - DeviceName: /dev/xvda  # Root volume
             Ebs:
               VolumeType: gp3
-              VolumeSize: 20
+              VolumeSize: 8
               Encrypted: true
               DeleteOnTermination: true
         TagSpecifications:
@@ -83,90 +117,22 @@ Resources:
             !Sub |
               #!/bin/bash
               # Update system
-              yum update -y
+              sudo su -
+              sudo yum update -y
+              # Install Nginx and AWS CLI
+              sudo yum install -y nginx awscli
+              # Start Nginx and enable it on boot
+              sudo systemctl start nginx
+              sudo systemctl enable nginx
+              # Create the directory to mount S3 content if not exists
+              sudo mkdir -p /usr/share/nginx/html
 
-              # Install dependencies
-              yum install -y httpd awscli
+              # Set the proper permissions for Nginx
+              sudo chown nginx:nginx /usr/share/nginx/html/index.html
+              # Initial download of index.html from S3
+              sudo aws s3 cp s3://s3bucketindexfileappserver/index.html /usr/share/nginx/html/index.html
+              sudo systemctl reload nginx
 
-              # Configure additional EBS volume
-              DEVICE="/dev/xvdf"
-              MOUNT_POINT="/mnt/data"
-
-              # Check if the device exists
-              if [ -b $DEVICE ]; then
-                # Create filesystem if not already created
-                if ! blkid $DEVICE; then
-                  mkfs -t ext4 $DEVICE
-                fi
-
-                # Create mount point
-                mkdir -p $MOUNT_POINT
-
-                # Add to fstab
-                echo "$DEVICE $MOUNT_POINT ext4 defaults,nofail 0 2" >> /etc/fstab
-
-                # Mount the volume
-                mount -a
-              fi
-
-              # Start and enable web server
-              systemctl start httpd
-              systemctl enable httpd
-              # Create sample index page
-              echo "<h1>
-              Hello from DEV App ServerDEV 
-              </h1>" > /var/www/html/index.html
-
-# ------------ AutoScalingGroup ------------
-  AutoScalingGroup:
-    Type: AWS::AutoScaling::AutoScalingGroup
-    DependsOn:
-      - LaunchTemplate
-      - ALBTargetGroup
-    Properties:
-      AutoScalingGroupName: AutoScalingGroupForDevVPC
-      LaunchTemplate:
-        LaunchTemplateId: !Ref LaunchTemplate
-        Version: !GetAtt LaunchTemplate.LatestVersionNumber
-      VPCZoneIdentifier: 
-       - !ImportValue PrivateSubnet1Id
-       - !ImportValue PrivateSubnet2Id
-      TargetGroupARNs:
-        - !Ref ALBTargetGroup
-      MinSize: !Ref MinInstances
-      MaxSize: !Ref MaxInstances
-      DesiredCapacity: !Ref DesiredInstances
-      HealthCheckType: EC2
-      HealthCheckGracePeriod: 300
-      Tags:
-        - Key: Name
-          Value: ASGInstance
-          PropagateAtLaunch: true
-  # #------------ Scaling Policy ------------
-  ScalingPolicyUp:
-    Type: AWS::AutoScaling::ScalingPolicy
-    DependsOn:
-      - AutoScalingGroup
-    Properties:
-      AutoScalingGroupName: !Ref AutoScalingGroup
-      PolicyType: TargetTrackingScaling
-      TargetTrackingConfiguration:
-        PredefinedMetricSpecification:
-          PredefinedMetricType: !Ref PredefinedMetricType
-        TargetValue: !Ref TargetValueUp
-
-  ScalingPolicyDown:
-    Type: AWS::AutoScaling::ScalingPolicy
-    DependsOn:
-      - AutoScalingGroup
-    Properties:
-      AutoScalingGroupName: !Ref AutoScalingGroup
-      PolicyType: TargetTrackingScaling
-      TargetTrackingConfiguration:
-        PredefinedMetricSpecification:
-          PredefinedMetricType: !Ref PredefinedMetricType
-        TargetValue: !Ref TargetValueDown
-  # #------------  Application Load Balancer (ALB) ------------
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
@@ -210,7 +176,56 @@ Resources:
     DependsOn:
       - ApplicationLoadBalancer
       - ALBTargetGroup
-      
+
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    DependsOn:
+      - LaunchTemplate
+      - ALBTargetGroup
+    Properties:
+      AutoScalingGroupName: AutoScalingGroupForDevVPC
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      VPCZoneIdentifier: 
+        - !ImportValue PrivateSubnet1Id
+        - !ImportValue PrivateSubnet2Id
+      TargetGroupARNs:
+        - !Ref ALBTargetGroup
+      MinSize: !Ref MinInstances
+      MaxSize: !Ref MaxInstances
+      DesiredCapacity: !Ref DesiredInstances
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 300
+      Tags:
+        - Key: Name
+          Value: ASGInstance
+          PropagateAtLaunch: true
+
+  ScalingPolicyUp:
+    Type: AWS::AutoScaling::ScalingPolicy
+    DependsOn:
+      - AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: !Ref PredefinedMetricType
+        TargetValue: !Ref TargetValueUp
+
+  ScalingPolicyDown:
+    Type: AWS::AutoScaling::ScalingPolicy
+    DependsOn:
+      - AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: !Ref PredefinedMetricType
+        TargetValue: !Ref TargetValueDown
+
 Outputs:
   AutoScalingGroupName:
     Description: The name of the Auto Scaling Group
