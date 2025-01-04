@@ -169,7 +169,7 @@ Resources:
       AvailabilityZone: !Select [1, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: PrivateSubnet2_AZ
+          Value: PrivateSubnet2_AZ2
     DependsOn:
       - VPC
   # Private Route Tables
