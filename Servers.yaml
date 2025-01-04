@@ -1,0 +1,235 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Auto Scaling Group (ASG) with Launch Template, Scaling Policies, and ALB.
+
+Parameters:
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    Description: EC2 instance type
+
+  MaxInstances:
+    Type: Number
+    Default: 4
+    Description: Maximum number of instances in the ASG
+
+  MinInstances:
+    Type: Number
+    Default: 2
+    Description: Minimum number of instances in the ASG
+
+  DesiredInstances:
+    Type: Number
+    Default: 2
+    Description: Desired number of instances in the ASG
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: PublicEC2KeyPair
+    Description: Key pair name for SSH access
+
+  ALBListenerPort:
+    Type: Number
+    Default: 80
+    Description: ALB Listener Port Number
+
+  PredefinedMetricType:
+    Type: String
+    Default: ASGAverageCPUUtilization
+    Description: Choose the predefined metric for scaling (e.g., ASGAverageCPUUtilization, ALBRequestCountPerTarget)
+    AllowedValues:
+      - ASGAverageCPUUtilization
+      - ALBRequestCountPerTarget
+      - ASGAverageNetworkIn
+      - ASGAverageNetworkOut
+
+  TargetValueUp:
+    Type: Number
+    Default: 95
+    Description: Target value for the chosen Scaling -UP- metric
+
+  TargetValueDown:
+    Type: Number
+    Default: 20
+    Description: Target value for the chosen Scaling -DOWN- metric
+
+Resources:
+
+  EC2IndexBucketRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3IndexBucketPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: "s3:*"
+                Resource: !Join ["",["arn:aws:s3:::",!ImportValue S3BucketIndexFileId]]
+              - Effect: Allow
+                Action: "s3:*"
+                Resource: !Join ["",["arn:aws:s3:::",!ImportValue S3BucketIndexFileId,"/*"]]
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2IndexBucketRole
+
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: LaunchTemplate_Dev
+      LaunchTemplateData:
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyName
+        ImageId: ami-02df5cb5ad97983ba # Amazon Linux 
+        SecurityGroupIds:
+          - !ImportValue WebServerSecGroupId
+        IamInstanceProfile:
+          Name: !Ref InstanceProfile
+        Monitoring:
+          Enabled: true
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda  # Root volume
+            Ebs:
+              VolumeType: gp3
+              VolumeSize: 8
+              Encrypted: true
+              DeleteOnTermination: true
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: ASGPrivateInstance_DEV
+        UserData:
+          Fn::Base64: 
+            !Sub |
+              #!/bin/bash
+              # Update system
+              sudo su -
+              sudo yum update -y
+              # Install Nginx and AWS CLI
+              sudo yum install -y nginx awscli
+              # Start Nginx and enable it on boot
+              sudo systemctl start nginx
+              sudo systemctl enable nginx
+              # Create the directory to mount S3 content if not exists
+              sudo mkdir -p /usr/share/nginx/html
+
+              # Set the proper permissions for Nginx
+              sudo chown nginx:nginx /usr/share/nginx/html/index.html
+              # Initial download of index.html from S3
+              sudo aws s3 cp s3://s3bucketindexfileappserver/index.html /usr/share/nginx/html/index.html
+              sudo systemctl reload nginx
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: TweetALBDEV
+      Scheme: internet-facing
+      Subnets: 
+        - !ImportValue PublicSubnet1Id
+        - !ImportValue PublicSubnet2Id
+      SecurityGroups:
+        - !ImportValue LBSecGroupId
+      Tags:
+        - Key: Name
+          Value: TweetALBDev
+
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: TweetALBTargetGroup
+      VpcId: !ImportValue VpcId
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      HealthCheckEnabled: true
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckPort: traffic-port
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 3
+      UnhealthyThresholdCount: 3
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: !Ref ALBListenerPort
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+    DependsOn:
+      - ApplicationLoadBalancer
+      - ALBTargetGroup
+
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    DependsOn:
+      - LaunchTemplate
+      - ALBTargetGroup
+    Properties:
+      AutoScalingGroupName: AutoScalingGroupForDevVPC
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      VPCZoneIdentifier: 
+        - !ImportValue PrivateSubnet1Id
+        - !ImportValue PrivateSubnet2Id
+      TargetGroupARNs:
+        - !Ref ALBTargetGroup
+      MinSize: !Ref MinInstances
+      MaxSize: !Ref MaxInstances
+      DesiredCapacity: !Ref DesiredInstances
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 300
+      Tags:
+        - Key: Name
+          Value: ASGInstance
+          PropagateAtLaunch: true
+
+  ScalingPolicyUp:
+    Type: AWS::AutoScaling::ScalingPolicy
+    DependsOn:
+      - AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: !Ref PredefinedMetricType
+        TargetValue: !Ref TargetValueUp
+
+  ScalingPolicyDown:
+    Type: AWS::AutoScaling::ScalingPolicy
+    DependsOn:
+      - AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: !Ref PredefinedMetricType
+        TargetValue: !Ref TargetValueDown
+
+Outputs:
+  AutoScalingGroupName:
+    Description: The name of the Auto Scaling Group
+    Value: !Ref AutoScalingGroup
+  LaunchTemplateId:
+    Description: The ID of the Launch Template created for the ASG
+    Value: !Ref LaunchTemplate
