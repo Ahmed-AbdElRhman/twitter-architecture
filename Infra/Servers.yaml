@@ -116,22 +116,26 @@ Resources:
           Fn::Base64: 
             !Sub |
               #!/bin/bash
-              # Update system
-              sudo su -
-              sudo yum update -y
-              # Install Nginx and AWS CLI
-              sudo yum install -y nginx awscli
-              # Start Nginx and enable it on boot
-              sudo systemctl start nginx
-              sudo systemctl enable nginx
-              # Create the directory to mount S3 content if not exists
-              sudo mkdir -p /usr/share/nginx/html
+              set -e  # Exit on error
 
-              # Set the proper permissions for Nginx
-              sudo chown nginx:nginx /usr/share/nginx/html/index.html
-              # Initial download of index.html from S3
-              sudo aws s3 cp s3://s3bucketindexfileappserver/index.html /usr/share/nginx/html/index.html
-              sudo systemctl reload nginx
+              # Update and install Docker
+              sudo apt update
+              sudo apt install -y docker.io
+
+              # Start and enable Docker
+              sudo systemctl start docker
+              sudo systemctl enable docker
+
+              # Allow traffic on port 80
+              sudo ufw allow 80/tcp
+              sudo ufw reload
+
+              # Pull and run the Docker image
+              sudo docker pull GlobApp/helloApp
+              sudo docker run -d -p 80:8080 GlobApp/helloApp
+
+              # Verify the container is running
+              sudo docker ps
 
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
