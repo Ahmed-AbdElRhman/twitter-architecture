@@ -1,0 +1,53 @@
+package main
+
+import (
+	"fmt"
+
+	sqlmngr "github.com/Ahmed-AbdElRhman/twitter-architecture/sqlMngr"
+	"github.com/Ahmed-AbdElRhman/twitter-architecture/users/authmiddleware"
+	"github.com/Ahmed-AbdElRhman/twitter-architecture/users/users_api"
+	"github.com/Ahmed-AbdElRhman/twitter-architecture/users/users_services"
+	"github.com/Ahmed-AbdElRhman/twitter-architecture/utils"
+	"github.com/labstack/echo/v4"
+)
+
+// type SqlMngr2 interface {
+// 	CreateTables() error
+// 	SeedProducts() error
+// }
+
+var (
+	host     = utils.Host
+	port     = utils.Port
+	user     = utils.User
+	password = utils.Password
+	dbname   = utils.DBName
+)
+
+func main() {
+	connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", host, port, user, password, dbname)
+	fmt.Println(connStr)
+	// define the type of dbConnector
+	sqldbMngr, err := sqlmngr.NewPostgres(connStr, "../sqlMngr/schema.sql")
+	if err != nil {
+		fmt.Printf("Error while connect to database: %v\n", err)
+	}
+	defer sqldbMngr.CloseDB()
+
+	//inject the Database to the User Service Interface
+	usersMgr := users_services.NewUsersService(sqldbMngr)
+	// define the type of JWT
+	jwtObj := authmiddleware.NewLocalMiddlewareMngr(utils.JWT_SECRET)
+
+	// **** Router ****
+	//inject the UserMnger feature to the User API interface
+	userRouter := users_api.NewUsersRouter(usersMgr, jwtObj)
+
+	// ---- Define echo server ----
+	e := echo.New()
+	e.POST("/login", userRouter.Login)
+	protected := e.Group("")
+	protected.Use(jwtObj.JWTMiddleware())
+	e.POST("/gettweets", userRouter.GetUserTweets, jwtObj.GroupAuthorization([]string{"admin"}))
+	e.Logger.Fatal(e.Start(":8080"))
+}
