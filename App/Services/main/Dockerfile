@@ -9,8 +9,8 @@
 FROM alpine:latest
 WORKDIR /app
 # COPY --from=builder /app/main .
-COPY main /app/main
+COPY app /app
 # COPY --from=builder /app/.env .
 
 EXPOSE 8082
-CMD ["./main"]
+CMD ["./app"]

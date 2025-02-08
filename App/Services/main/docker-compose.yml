@@ -3,8 +3,10 @@ version: '3.8'
 services:
   app:
     build: .
+    container_name: tweet_app
+    # restart: always
     ports:
-      - "8082:8082"
+      - "8080:8080"
     environment:
       - DB_HOST=localhost
       - DB_USER=postgres
@@ -14,9 +16,11 @@ services:
       - JWT_SECRET=7c3d9f82a1e5b409f6e7c8d2a4b0c9d3e5f7a1b2c8d9e0f3a4b5c6d7e8f9a0b
     depends_on:
       - db
+      - mongodb
 
   db:
     image: postgres
+    container_name: postgresDB
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -28,6 +32,7 @@ services:
 
   pgadmin:
     image: dpage/pgadmin4
+    container_name: pgadmin
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@admin.com
       PGADMIN_DEFAULT_PASSWORD: admin
@@ -38,7 +43,35 @@ services:
     depends_on:
       - db
 
+  mongodb:
+    image: mongo:6
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin
+    volumes:
+      - mongodb_data:/data/db # Persistent volume
+      - ../nosqlMngr/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro # maps init-mongo.js file from local MongoDB to initialize the database tables
+
+  mongo-express:
+    image: mongo-express:1.0.0-alpha.4
+    container_name: mongo_express
+    restart: always
+    ports:
+      - "8081:8081"
+    environment:
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=admin
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=admin
+      - ME_CONFIG_MONGODB_SERVER=mongodb
+    depends_on:
+      - mongodb
+    volumes:
+      - mongo_express_data:/data/db
 
 volumes:
   postgres_data:
   pgadmin_data:
+  mongodb_data:
+  mongo_express_data:
