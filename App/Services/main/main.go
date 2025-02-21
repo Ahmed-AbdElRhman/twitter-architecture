@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/Ahmed-AbdElRhman/twitter-architecture/hashingapp"
 	nosqlmngr "github.com/Ahmed-AbdElRhman/twitter-architecture/nosqlMngr"
 	sqlmngr "github.com/Ahmed-AbdElRhman/twitter-architecture/sqlMngr"
 	"github.com/Ahmed-AbdElRhman/twitter-architecture/tweets/tweets_api"
@@ -28,24 +29,28 @@ var (
 )
 
 func main() {
-	// ******* User Service ********
+	// ********************** USER SERVICE **********************
+	// define the type of dbConnector
 	connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", host, port, user, password, dbname)
 	fmt.Println(connStr)
-	// define the type of dbConnector
 	sqldbMngr, err := sqlmngr.NewPostgres(connStr, "../sqlMngr/schema.sql")
 	if err != nil {
 		panic("Error while connect to Users database:" + err.Error())
 	}
 	defer sqldbMngr.CloseDB()
-
-	//inject the Database to the User Service Interface
-	usersMgr := users_services.NewUsersService(sqldbMngr)
+	// Hashing Manager
+	hashMngr := hashingapp.NewHashMngr(utils.HASHING_SECRET)
+	/*
+		inject the Hashing Manager to the User Service Interface
+		inject the Database to the User Service Interface
+	*/
+	usersMgr := users_services.NewUsersService(sqldbMngr, hashMngr)
 	// define the type of JWT
 	jwtObj := authmiddleware.NewLocalMiddlewareMngr(utils.JWT_SECRET)
 	//inject the UserMnger feature to the User API interface
 	userRouter := users_api.NewUsersRouter(usersMgr, jwtObj)
 
-	// ******* Tweet Service ********
+	// ********************** TWEET SERVICE **********************
 	tweetDbMngr, err := nosqlmngr.NewMongoDb("mongodb://admin:admin@localhost:27017")
 	if err != nil {
 		panic("Error while connect to tweetDbMngr database:" + err.Error())
@@ -59,11 +64,12 @@ func main() {
 	e := echo.New()
 	// ------ User API Routes ---------
 	e.POST("/login", userRouter.Login)
+	e.POST("/register", userRouter.Register)
 	protected := e.Group("")
 	protected.Use(jwtObj.JWTMiddleware())
-	e.POST("/gettweets", userRouter.GetUserTweets, jwtObj.GroupAuthorization([]string{"admin"}))
+	protected.POST("/gettweets", userRouter.GetUserTweets, jwtObj.GroupAuthorization([]string{"edit_tweets"}))
 	// ------ Tweet API Routes ---------
-	e.POST("/createtweet", tweetRouter.CreateTweet)
-	e.GET("/getusertweets", tweetRouter.GetUserTweets)
+	protected.POST("/createtweet", tweetRouter.CreateTweet)
+	protected.GET("/getusertweets", tweetRouter.GetUserTweets)
 	e.Logger.Fatal(e.Start(":8080"))
 }

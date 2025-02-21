@@ -1,59 +1,79 @@
 package users_services
 
 import (
-	"database/sql"
 	"fmt"
-	"log"
 	"reflect"
 	"strings"
 )
 
 type DbMngr interface {
 	CloseDB() error
+	GetUser(username string) (*UserInfo, error)
+	CreateUser(UsrRegister *UsrRegisterparam) (int, error)
 	Insert(tableName string, argsKeys []string, argsVals []string) error
-	//TODO: Remove SQL Package Make it puplic
-	Selectrow(sql string) (*sql.Rows, error)
+	GetUserAuthlist(user *UserInfo, userid int) error
+}
+type HashMngr interface {
+	HashPassword(password string) (string, error)
+	CheckPassword(password string, hashedPassword string) error
 }
 type UserService struct {
-	dbMngr DbMngr
+	dbMngr   DbMngr
+	hashMngr HashMngr
 }
 
-func NewUsersService(dbMngr DbMngr) *UserService {
+func NewUsersService(dbMngr DbMngr, hashMngr HashMngr) *UserService {
 	return &UserService{
-		dbMngr: dbMngr,
+		dbMngr:   dbMngr,
+		hashMngr: hashMngr,
 	}
 }
-func (obj *UserService) GetUser(UsrLogin UsrLoginparam) (*User, error) {
-	usertags := getJSONTags(User{})
-	querySt := fmt.Sprintf(`SELECT %s from %s WHERE userId='%s' and password='%s' `, strings.Join(usertags, ","), "users",
-		UsrLogin.UserId, UsrLogin.Password)
-	fmt.Println("GetUser Query " + querySt)
-	row, err := obj.dbMngr.Selectrow(querySt)
+
+// ----------------- CreateUser -----------------
+func (obj *UserService) CreateUser(usrRegisterparam *UsrRegisterparam) (int, error) {
+	// ----- Hash the password -----
+	hashedPassword, err := obj.hashMngr.HashPassword(usrRegisterparam.Password)
+	if err != nil {
+		return -1, err
+	}
+	usrRegisterparam.Password = hashedPassword
+	// ----- Insert the user into the database -----
+	id, err := obj.dbMngr.CreateUser(usrRegisterparam)
+	if err != nil {
+		return -1, err
+	}
+	return id, nil
+}
+
+// ----------------- GetUser -----------------
+func (obj *UserService) GetUser(UsrLogin *UsrLoginparam) (*UserInfo, error) {
+	// ----- Check if the user exists in the database -----
+	user, err := obj.dbMngr.GetUser(UsrLogin.Username)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("GetUser Query Done")
-	user := &User{}
-	// Check if there's a row to scan
-	if row.Next() {
-		// Scan the values from the row into the Product struct
-		err = row.Scan(&user.ID, &user.Username, &user.Password, &user.Email)
-		if err != nil {
-			log.Printf("GetUSer:Error scanning row values: %s", err)
-			return nil, err
-		}
-		return user, nil
-	} else {
-		// No rows found
-		log.Printf("GetUSer:No rows found")
-		return nil, nil
+	// ----- Check if the password is correct -----
+	if err_ := obj.hashMngr.CheckPassword(UsrLogin.Password, user.Password); err_ != nil {
+		return nil, err_
+
 	}
+	// ----- Get the user's auth list -----
+	if err_ := obj.dbMngr.GetUserAuthlist(user, user.ID); err_ != nil {
+		return nil, err_
+
+	}
+	if err_ := len(user.AuthList) == 0; err_ {
+		fmt.Println("user Dont has any group")
+
+	}
+	return user, nil
 }
 
 /************************************************************************************************************/
 // Global functions to get the JSON tags of a struct
-func getJSONTags(s interface{}) []string {
+func getJSONTagsandvalues(s interface{}) []string {
 	var tags []string
+	// var value []string
 	// Get the type of the struct
 	t := reflect.TypeOf(s)
 
